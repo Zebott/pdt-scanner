@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>ITX PDT Mobile Scanner</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1e293b">
+  <link rel="stylesheet" href="style.css">
+  <script src="html5-qrcode.min.js"></script>
+  <script src="pdt_data.js"></script>
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand-title">
+        <span>📱 PDT SCANNER</span>
+        <span class="brand-badge">BTI TXT</span>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="btnResetSession" title="Reset Sesi Scan">🔄</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    
+    <!-- Header / Parameters Card -->
+    <div class="card" id="headerCard">
+      <div class="card-header" id="btnToggleHeader">
+        <span>⚙️ Parameter Dokumen Transfer</span>
+        <span id="headerToggleIcon">▼ Sembunyikan</span>
+      </div>
+      <div class="card-body" id="headerCardBody">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Tanggal Scan (YYYYMMDD)</label>
+            <input type="date" id="inputDate" class="form-control">
+          </div>
+          <div class="form-group">
+            <label>No. Pack / Dus Aktif</label>
+            <div class="pack-row">
+              <input type="text" id="inputNoPack" class="form-control pack-highlight" value="AA/168">
+              <button class="btn-new-pack" id="btnNewPack">+ Dus Baru</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <!-- INPUT LOKASI ASAL (MANUAL / KETIK NAMA/KODE) -->
+          <div class="form-group" style="position: relative;">
+            <label>Lokasi Asal (Ketik Kode / Nama Toko)</label>
+            <input type="text" id="inputLokAsal" class="form-control" placeholder="Ketik kode 55414 / nama toko..." value="55414" autocomplete="off">
+            <div id="badgeLokAsal" class="lokasi-verified-badge">🏬 55414 - ITX AEON DEPT STORE CAKUNG (Q14)</div>
+            <div id="suggestLokAsal" class="suggest-box" style="display: none;"></div>
+          </div>
+
+          <!-- INPUT LOKASI TUJUAN (MANUAL / KETIK NAMA/KODE) -->
+          <div class="form-group" style="position: relative;">
+            <label>Lokasi Tujuan (Ketik Kode / Nama Toko)</label>
+            <input type="text" id="inputLokTujuan" class="form-control" placeholder="Ketik kode 55036 / nama toko..." value="55036" autocomplete="off">
+            <div id="badgeLokTujuan" class="lokasi-verified-badge">🏬 55036 - ITX GUDANG NAROGONG EX PAMERAN (X36)</div>
+            <div id="suggestLokTujuan" class="suggest-box" style="display: none;"></div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; font-weight: 700; color: #1e40af;">
+            <input type="checkbox" id="checkResetQty" checked style="width: 18px; height: 18px; accent-color: #2563eb;">
+            Kembalikan QTY ke 1 setelah scan berhasil
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer; font-weight: 700; color: #1e293b;">
+            <input type="checkbox" id="checkAutoAdd" checked style="width: 18px; height: 18px; accent-color: #2563eb;">
+            Langsung simpan ke daftar saat barcode di-scan (Auto-Add)
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Scanner Box with Explicit QTY Input -->
+    <div class="scan-box-wrapper">
+      
+      <div class="scan-grid-main">
+        <!-- ISIAN MANUAL QTY -->
+        <div class="form-group" style="margin-bottom: 0;">
+          <label style="color: #1e40af; font-size: 0.75rem; font-weight: 800;">QTY (JUMLAH)</label>
+          <div class="qty-control-box">
+            <button type="button" class="qty-btn-touch" id="btnQtyTouchMinus">−</button>
+            <input type="number" id="inputMainQty" class="input-qty-number" value="1" min="0.01" step="any" placeholder="1">
+            <button type="button" class="qty-btn-touch" id="btnQtyTouchPlus">+</button>
+          </div>
+        </div>
+
+        <!-- INPUT SCAN BARCODE / PLU -->
+        <div class="form-group" style="margin-bottom: 0;">
+          <label style="color: #1e40af; font-size: 0.75rem; font-weight: 800;">SCAN BARCODE / PLU</label>
+          <div class="scan-input-group">
+            <input type="text" id="inputScanCode" class="scan-input" placeholder="Scan Barcode / PLU..." autocomplete="off" autofocus>
+            <button class="scan-cam-btn" id="btnOpenCam" title="Buka Kamera HP">📷</button>
+            <div class="suggest-box" id="suggestBox"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Qty Shortcut Buttons -->
+            <!-- Live Item Display (Shows immediately as user types or scans) -->
+      <div id="liveItemCard" class="live-item-card">
+        <div class="live-item-icon" id="liveItemIcon">📦</div>
+        <div class="live-item-body">
+          <div class="live-item-title" id="liveItemName">Nama barang akan otomatis muncul di sini...</div>
+          <div class="live-item-sub" id="liveItemMeta">Ketik atau scan nomor PLU / barcode barang di atas</div>
+        </div>
+      </div>
+
+      <div class="quick-qty-container">
+        <span class="quick-qty-label">Pilih Qty Cepat:</span>
+        <button type="button" class="qty-chip" data-qty="1">1</button>
+        <button type="button" class="qty-chip" data-qty="2">2</button>
+        <button type="button" class="qty-chip" data-qty="3">3</button>
+        <button type="button" class="qty-chip" data-qty="5">5</button>
+        <button type="button" class="qty-chip" data-qty="6">6</button>
+        <button type="button" class="qty-chip" data-qty="10">10</button>
+        <button type="button" class="qty-chip" data-qty="12">12</button>
+        <button type="button" class="qty-chip" data-qty="24">24</button>
+      </div>
+
+      <!-- Manual Submit Button -->
+      <div style="margin-top: 10px;">
+        <button type="button" class="btn-add-item" id="btnManualSubmit" style="width: 100%;">
+          ➕ TAMBAH ITEM KE DAFTAR (ENTER)
+        </button>
+      </div>
+
+      <!-- Item Preview Box (when item is confirmed) -->
+      <div class="item-preview" id="itemPreview">
+        <div class="item-preview-name" id="previewItemName">-</div>
+        <div class="item-preview-meta" id="previewItemMeta">-</div>
+        <div class="qty-control-row">
+          <button class="qty-step-btn" id="btnStepMinus">-</button>
+          <input type="number" id="previewQty" class="qty-field" value="1" min="1">
+          <button class="qty-step-btn" id="btnStepPlus">+</button>
+          <button class="btn-add-item" id="btnAddItem">SIMPAN ITEM</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Summary Bar -->
+    <div class="summary-bar">
+      <div class="summary-box">
+        <div class="summary-box-label">Total Baris</div>
+        <div class="summary-box-val" id="totalLines">0</div>
+      </div>
+      <div class="summary-box">
+        <div class="summary-box-label">Total QTY</div>
+        <div class="summary-box-val" id="totalQty">0.00</div>
+      </div>
+      <div class="summary-box">
+        <div class="summary-box-label">Dus Aktif</div>
+        <div class="summary-box-val" id="activePackDisplay" style="color: #b45309;">-</div>
+      </div>
+    </div>
+
+    <!-- Scanned Items List -->
+    <div class="item-list" id="scannedItemList"></div>
+
+    <!-- Empty State -->
+    <div class="empty-state" id="emptyState">
+      <div style="font-size: 2.5rem; margin-bottom: 8px;">📦</div>
+      <div style="font-weight: 700; font-size: 1.05rem;">Belum ada barang di-scan</div>
+      <div style="font-size: 0.85rem; margin-top: 4px;">Ketik QTY, arahkan laser scanner PDT atau ketik PLU barang di atas</div>
+    </div>
+
+  </main>
+
+  <!-- Bottom Action Bar -->
+  <footer class="bottom-bar">
+    <div class="bottom-inner">
+      <button class="btn-download-txt" id="btnDownloadTxt">
+        <span>💾</span>
+        <span>DOWNLOAD TXT (BTI)</span>
+      </button>
+      <button class="btn-preview-txt" id="btnPreviewTxt">
+        <span>👁️ Preview</span>
+      </button>
+    </div>
+  </footer>
+
+  <!-- Modal Preview TXT -->
+  <div class="modal-overlay" id="modalPreview">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div>
+          <span>Hasil Format File TXT</span>
+          <div style="font-size: 0.75rem; color: var(--primary); font-weight: 700;" id="previewFilenameDisplay">BTI_*.TXT</div>
+        </div>
+        <button class="modal-close" id="btnClosePreview">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="preview-txt-area" id="txtPreviewArea"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-preview-txt" id="btnCopyPreview">📋 Salin Teks</button>
+        <button class="btn-download-txt" id="btnDownloadFromPreview" style="flex: unset; padding: 10px 16px;">💾 Download</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Camera Scanner -->
+  <div class="modal-overlay" id="modalCam">
+    <div class="modal-box" style="max-width: 450px;">
+      <div class="modal-header">
+        <span>📷 Kamera Barcode Scanner</span>
+        <button class="modal-close" id="btnCloseCam">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Alert if live video camera is blocked -->
+        <div id="camAlertDenied" style="display:none; background:#fef2f2; border:1.5px solid #f87171; padding:12px; border-radius:10px; margin-bottom:12px; font-size:0.85rem; color:#991b1b;">
+          <div style="font-weight: 800; font-size: 0.95rem; margin-bottom: 4px;">⚠️ Izin Video Kamera Ditolak / Dibatasi</div>
+          <p style="margin: 0 0 8px 0; line-height: 1.4;">
+            Browser belum diberi izin kamera, atau Anda membuka file secara lokal (<code>file://</code>).
+          </p>
+          <div style="background: white; padding: 8px 10px; border-radius: 6px; border: 1px solid #fca5a5; margin-bottom: 10px;">
+            <strong>Solusi Mudah (Tanpa Ubah Setelan):</strong><br>
+            Gunakan kamera foto bawaan HP di bawah ini:
+          </div>
+          <button type="button" class="btn-download-txt" id="btnSnapFallback" style="width:100%; padding:11px; background:#dc2626;">
+            📸 AMBIL FOTO BARCODE
+          </button>
+        </div>
+
+        <div id="reader"></div>
+        <p id="readerHint" style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 10px;">
+          Posisikan barcode produk di dalam kotak scan
+        </p>
+
+        <!-- Native file input fallback (Bypasses getUserMedia restrictions) -->
+        <input type="file" id="camFileInput" accept="image/*" capture="environment" style="display: none;">
+
+        <div style="margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 10px; text-align: center;">
+          <button type="button" class="btn-preview-txt" id="btnTriggerSnap" style="width: 100%;">
+            📸 Mode Foto Barcode (Kamera Bawaan HP)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
