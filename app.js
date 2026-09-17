@@ -286,6 +286,19 @@
     const sumQty = state.items.reduce((acc, it) => acc + (parseFloat(it.qty) || 0), 0);
     elTotalQty.textContent = sumQty.toFixed(2);
 
+    const elBannerSusulan = document.getElementById('bannerSusulan');
+    const elBannerText = document.getElementById('bannerSusulanText');
+    if (elBannerSusulan) {
+      const cntDl = state.items.filter(it => it.downloaded).length;
+      const cntNew = state.items.filter(it => !it.downloaded).length;
+      if (cntDl > 0 && cntNew > 0) {
+        elBannerText.textContent = `${cntDl} barang sudah diunduh sebelumnya, ${cntNew} barang baru (dus susulan).`;
+        elBannerSusulan.style.display = 'flex';
+      } else {
+        elBannerSusulan.style.display = 'none';
+      }
+    }
+
     if (state.items.length === 0) {
       elEmptyState.style.display = 'block';
       elItemList.innerHTML = '';
@@ -298,7 +311,7 @@
     for (let i = state.items.length - 1; i >= 0; i--) {
       const item = state.items[i];
       html += `
-        <div class="item-card" data-idx="${i}">
+        <div class="item-card ${item.downloaded ? 'is-downloaded' : ''}" data-idx="${i}">
           <div class="item-card-left">
             <span class="item-badge-seq">#${item.seq}</span>
             <div class="item-info">
@@ -307,6 +320,7 @@
                 <span class="badge-pack-tag">📦 ${escapeHtml(item.pack)}</span>
                 <span>PLU: <strong>${escapeHtml(item.plu)}</strong></span>
                 <span>⏱️ ${escapeHtml(item.time)}</span>
+                ${item.downloaded ? '<span class="badge-dl-status downloaded">✅ Diunduh</span>' : '<span class="badge-dl-status new">✨ Baru</span>'}
               </div>
             </div>
           </div>
@@ -790,8 +804,8 @@
   });
 
   document.getElementById('btnCopyPreview').addEventListener('click', copyTxtToClipboard);
-  document.getElementById('btnDownloadFromPreview').addEventListener('click', downloadTxtFile);
-  document.getElementById('btnDownloadTxt').addEventListener('click', downloadTxtFile);
+  document.getElementById('btnDownloadFromPreview').addEventListener('click', handleDownloadClick);
+  document.getElementById('btnDownloadTxt').addEventListener('click', handleDownloadClick);
 
   document.getElementById('btnResetSession').addEventListener('click', function () {
     if (state.items.length === 0) {
@@ -914,6 +928,53 @@
 
   // --- Global Window Helpers for Rows ---
   window.ITX_PDT = {
+    downloadArchive: function (arcId) {
+      const list = getArchives();
+      const target = list.find(a => a.id === arcId);
+      if (!target) return;
+
+      const tglStr = formatYYYYMMDD(target.tanggal);
+      const asal = (target.lokasiAsal || '').padStart(5, '0');
+      const tujuan = (target.lokasiTujuan || '').padStart(5, '0');
+
+      let lines = [];
+      target.items.forEach(it => {
+        lines.push(`${tglStr}|${asal}|${tujuan}|${it.pack}|${it.seq}|||${it.plu}|${(parseFloat(it.qty)||0).toFixed(2)}| |${it.time}|${it.name}`);
+      });
+      const content = lines.join('\r\n') + '\r\n';
+      triggerBlobDownload(content, target.filename);
+      showToast(`Arsip ${target.filename} berhasil diunduh ulang!`);
+    },
+    restoreArchive: function (arcId) {
+      const list = getArchives();
+      const target = list.find(a => a.id === arcId);
+      if (!target) return;
+
+      if (state.items.length > 0) {
+        if (!confirm('Layar scan saat ini masih berisi data. Menimpa layar dengan sesi arsip ini?')) return;
+      }
+
+      state.tanggal = target.tanggal;
+      state.lokasiAsal = target.lokasiAsal;
+      state.lokasiTujuan = target.lokasiTujuan;
+      state.noPack = (target.packs && target.packs.length) ? target.packs[target.packs.length - 1] : 'AA/168';
+      state.items = JSON.parse(JSON.stringify(target.items));
+
+      saveSession();
+      loadSession();
+      renderUI();
+      elModalArchive.classList.remove('active');
+      showToast(`Sesi ${target.filename} berhasil dibuka kembali!`);
+    },
+    deleteArchive: function (arcId) {
+      if (confirm('Hapus dokumen ini dari riwayat arsip?')) {
+        let list = getArchives();
+        list = list.filter(a => a.id !== arcId);
+        saveArchives(list);
+        renderArchiveList();
+        showToast('Arsip dihapus.');
+      }
+    },
     deleteItem: function (idx) {
       if (confirm(`Hapus baris #${state.items[idx].seq} (${state.items[idx].name})?`)) {
         state.items.splice(idx, 1);
@@ -940,6 +1001,284 @@
       }
     }
   };
+
+
+  // --- ARCHIVE & SMART DOWNLOAD SYSTEM (A + B + C Architecture) ---
+  const ARCHIVE_KEY = 'ITX_PDT_ARCHIVES_V1';
+
+  function getArchives() {
+    try {
+      const data = localStorage.getItem(ARCHIVE_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveArchives(list) {
+    try {
+      // Keep up to 50 latest sessions
+      const trimmed = list.slice(0, 50);
+      localStorage.setItem(ARCHIVE_KEY, JSON.stringify(trimmed));
+    } catch (e) {}
+  }
+
+  function addSessionToArchive(filename, items, isSusulan = false) {
+    const list = getArchives();
+    const now = new Date();
+    const dateFormatted = formatScanTimestamp(now);
+    const uniquePacks = Array.from(new Set(items.map(it => it.pack)));
+    const sumQty = items.reduce((acc, it) => acc + (parseFloat(it.qty) || 0), 0);
+
+    const record = {
+      id: 'BTI_' + Date.now(),
+      filename: filename,
+      savedAt: dateFormatted,
+      tanggal: state.tanggal,
+      lokasiAsal: state.lokasiAsal,
+      lokasiTujuan: state.lokasiTujuan,
+      isSusulan: isSusulan,
+      totalLines: items.length,
+      totalQty: sumQty.toFixed(2),
+      packs: uniquePacks,
+      items: JSON.parse(JSON.stringify(items))
+    };
+
+    // Add to front of archive
+    list.unshift(record);
+    saveArchives(list);
+  }
+
+  // --- Render Archive Modal List ---
+  const elModalArchive = document.getElementById('modalArchive');
+  const elArchiveContainer = document.getElementById('archiveListContainer');
+  const elEmptyArchive = document.getElementById('emptyArchiveState');
+  const elSearchArchive = document.getElementById('inputSearchArchive');
+
+  function renderArchiveList(filterText = '') {
+    const list = getArchives();
+    const q = (filterText || '').trim().toUpperCase();
+
+    const filtered = list.filter(item => {
+      if (!q) return true;
+      const fn = (item.filename || '').toUpperCase();
+      const asal = (item.lokasiAsal || '').toUpperCase();
+      const tujuan = (item.lokasiTujuan || '').toUpperCase();
+      const packs = (item.packs || []).join(' ').toUpperCase();
+      return fn.includes(q) || asal.includes(q) || tujuan.includes(q) || packs.includes(q);
+    });
+
+    if (filtered.length === 0) {
+      elEmptyArchive.style.display = 'block';
+      elArchiveContainer.innerHTML = '';
+      return;
+    }
+
+    elEmptyArchive.style.display = 'none';
+    let html = '';
+    filtered.forEach((arc, idx) => {
+      const susulanBadge = arc.isSusulan ? '<span class="badge-dl-status new">DUS SUSULAN</span>' : '';
+      html += `
+        <div class="archive-card">
+          <div class="archive-card-header">
+            <div>
+              <div class="archive-filename">${escapeHtml(arc.filename)} ${susulanBadge}</div>
+              <div style="font-size: 0.78rem; color: #64748b; margin-top: 2px;">
+                Asal: <strong>${escapeHtml(arc.lokasiAsal)}</strong> ➔ Tujuan: <strong>${escapeHtml(arc.lokasiTujuan)}</strong>
+              </div>
+            </div>
+            <span class="archive-date">⏱️ ${escapeHtml(arc.savedAt)}</span>
+          </div>
+
+          <div class="archive-meta">
+            📊 <strong>${arc.totalLines} baris</strong> | Total Qty: <strong>${arc.totalQty} pcs</strong> | Dus: <code>${(arc.packs || []).join(', ')}</code>
+          </div>
+
+          <div class="archive-actions">
+            <button type="button" class="btn-archive-dl" onclick="window.ITX_PDT.downloadArchive('${arc.id}')">
+              💾 Download File TXT
+            </button>
+            <button type="button" class="btn-archive-restore" onclick="window.ITX_PDT.restoreArchive('${arc.id}')">
+              🔄 Buka Kembali Sesi Ini
+            </button>
+            <button type="button" class="btn-archive-del" title="Hapus dari Arsip" onclick="window.ITX_PDT.deleteArchive('${arc.id}')">
+              ✕
+            </button>
+          </div>
+        </div>
+      `;
+    });
+
+    elArchiveContainer.innerHTML = html;
+  }
+
+  // Archive Event Listeners
+  const btnOpenArchive = document.getElementById('btnOpenArchive');
+  if (btnOpenArchive) {
+    btnOpenArchive.addEventListener('click', function () {
+      renderArchiveList();
+      elModalArchive.classList.add('active');
+    });
+  }
+
+  const btnCloseArchive = document.getElementById('btnCloseArchive');
+  const btnCloseArchiveBottom = document.getElementById('btnCloseArchiveBottom');
+  if (btnCloseArchive) btnCloseArchive.addEventListener('click', () => elModalArchive.classList.remove('active'));
+  if (btnCloseArchiveBottom) btnCloseArchiveBottom.addEventListener('click', () => elModalArchive.classList.remove('active'));
+
+  if (elSearchArchive) {
+    elSearchArchive.addEventListener('input', () => renderArchiveList(elSearchArchive.value));
+  }
+
+  const btnClearAllArchives = document.getElementById('btnClearAllArchives');
+  if (btnClearAllArchives) {
+    btnClearAllArchives.addEventListener('click', function () {
+      if (confirm('Yakin ingin menghapus SELURUH riwayat arsip dokumen lama?')) {
+        localStorage.removeItem(ARCHIVE_KEY);
+        renderArchiveList();
+        showToast('Seluruh arsip berhasil dibersihkan.');
+      }
+    });
+  }
+
+
+
+  // --- Smart Download Logic with Double-Upload Prevention ---
+  const elModalSmartDl = document.getElementById('modalSmartDownload');
+  const elBtnCloseSmartDl = document.getElementById('btnCloseSmartDl');
+  const elBtnDlOnlyNew = document.getElementById('btnDlOnlyNew');
+  const elBtnDlAllMerged = document.getElementById('btnDlAllMerged');
+  const elCntDownloaded = document.getElementById('cntDownloaded');
+  const elCntNew = document.getElementById('cntNew');
+  const elBtnNewCnt = document.getElementById('btnNewCnt');
+  const elBtnAllCnt = document.getElementById('btnAllCnt');
+
+  const elModalPostDl = document.getElementById('modalPostDownload');
+  const elBtnClosePostDl = document.getElementById('btnClosePostDl');
+  const elPostDlFilename = document.getElementById('postDlFilename');
+  const elBtnArchiveAndClear = document.getElementById('btnArchiveAndClear');
+  const elBtnKeepSession = document.getElementById('btnKeepSession');
+
+  if (elBtnCloseSmartDl) elBtnCloseSmartDl.addEventListener('click', () => elModalSmartDl.classList.remove('active'));
+  if (elBtnClosePostDl) elBtnClosePostDl.addEventListener('click', () => elModalPostDl.classList.remove('active'));
+  if (elBtnKeepSession) elBtnKeepSession.addEventListener('click', () => elModalPostDl.classList.remove('active'));
+
+  if (elBtnArchiveAndClear) {
+    elBtnArchiveAndClear.addEventListener('click', function () {
+      elModalPostDl.classList.remove('active');
+      state.items = [];
+      saveSession();
+      renderUI();
+      showToast('Sesi diarsipkan. Layar bersih siap scan dokumen baru!');
+      elScanInput.focus();
+    });
+  }
+
+  // Actual TXT File Generator from given array
+  function triggerBlobDownload(content, filename) {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function executeDownload(itemsToDownload, isSusulan = false) {
+    if (!itemsToDownload || itemsToDownload.length === 0) return;
+
+    const tglStr = formatYYYYMMDD(state.tanggal);
+    const asal = (state.lokasiAsal || '').padStart(5, '0');
+    const tujuan = (state.lokasiTujuan || '').padStart(5, '0');
+
+    let lines = [];
+    itemsToDownload.forEach(it => {
+      const seq = it.seq;
+      const pack = it.pack || 'AA/001';
+      const plu = it.plu;
+      const qtyStr = (parseFloat(it.qty) || 0).toFixed(2);
+      const timeStr = it.time;
+      const nameStr = it.name;
+
+      const row = `${tglStr}|${asal}|${tujuan}|${pack}|${seq}|||${plu}|${qtyStr}| |${timeStr}|${nameStr}`;
+      lines.push(row);
+    });
+
+    const content = lines.join('\r\n') + '\r\n';
+    
+    // Determine filename: append _SUSULAN if only downloading new items
+    let filename = `BTI_${tglStr}_${asal}_${tujuan}.TXT`;
+    if (isSusulan) {
+      filename = `BTI_${tglStr}_${asal}_${tujuan}_SUSULAN.TXT`;
+    }
+
+    triggerBlobDownload(content, filename);
+
+    // Mark these items as downloaded
+    itemsToDownload.forEach(it => { it.downloaded = true; });
+    saveSession();
+    renderUI();
+
+    // Add to archive
+    addSessionToArchive(filename, itemsToDownload, isSusulan);
+
+    // Show Post Download Modal
+    if (elPostDlFilename) elPostDlFilename.textContent = filename;
+    if (elModalPostDl) elModalPostDl.classList.add('active');
+
+    showToast(`File ${filename} berhasil diunduh!`);
+  }
+
+  // Handle Download Button Click
+  function handleDownloadClick() {
+    if (state.items.length === 0) {
+      alert('Belum ada item yang di-scan!');
+      return;
+    }
+
+    const downloadedItems = state.items.filter(it => it.downloaded);
+    const newItems = state.items.filter(it => !it.downloaded);
+
+    // CASE 1: All items are new (First download)
+    if (downloadedItems.length === 0) {
+      executeDownload(state.items, false);
+      return;
+    }
+
+    // CASE 2: There are both downloaded items and new items (DUS SUSULAN)
+    if (newItems.length > 0 && downloadedItems.length > 0) {
+      elCntDownloaded.textContent = downloadedItems.length;
+      elCntNew.textContent = newItems.length;
+      elBtnNewCnt.textContent = newItems.length;
+      elBtnAllCnt.textContent = state.items.length;
+      elModalSmartDl.classList.add('active');
+      return;
+    }
+
+    // CASE 3: All items have already been downloaded
+    if (confirm(`Seluruh ${state.items.length} barang pada sesi ini sudah pernah diunduh sebelumnya.\n\nApakah Anda ingin mengunduh ulang salinan filenya?`)) {
+      executeDownload(state.items, false);
+    }
+  }
+
+  if (elBtnDlOnlyNew) {
+    elBtnDlOnlyNew.addEventListener('click', function () {
+      elModalSmartDl.classList.remove('active');
+      const newItems = state.items.filter(it => !it.downloaded);
+      executeDownload(newItems, true);
+    });
+  }
+
+  if (elBtnDlAllMerged) {
+    elBtnDlAllMerged.addEventListener('click', function () {
+      elModalSmartDl.classList.remove('active');
+      executeDownload(state.items, false);
+    });
+  }
+
 
   // --- Startup ---
   window.addEventListener('DOMContentLoaded', () => {

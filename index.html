@@ -20,7 +20,8 @@
         <span class="brand-badge">BTI TXT</span>
       </div>
       <div class="header-actions">
-        <button class="icon-btn" id="btnResetSession" title="Reset Sesi Scan">🔄</button>
+        <button class="icon-btn" id="btnOpenArchive" title="Riwayat & Arsip Dokumen BTI">📁</button>
+        <button class="icon-btn" id="btnResetSession" title="Reset / Mulai Sesi Baru">🔄</button>
       </div>
     </div>
   </header>
@@ -162,6 +163,13 @@
         <div class="summary-box-val" id="activePackDisplay" style="color: #b45309;">-</div>
       </div>
     </div>
+    
+    <!-- Status Dus Susulan Banner (Shows only when mixed downloaded & new items exist) -->
+    <div id="bannerSusulan" style="display:none; background:#eff6ff; border:1.5px solid #93c5fd; border-radius:10px; padding:8px 12px; margin-bottom:12px; font-size:0.85rem; color:#1e40af; align-items:center; justify-content:space-between;">
+      <div>
+        <strong>📦 Info Dus:</strong> <span id="bannerSusulanText">-</span>
+      </div>
+    </div>
 
     <!-- Scanned Items List -->
     <div class="item-list" id="scannedItemList"></div>
@@ -244,6 +252,114 @@
             📸 Mode Foto Barcode (Kamera Bawaan HP)
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- Modal Smart Download (Pilihan Dus Susulan vs Semua) -->
+  <div class="modal-overlay" id="modalSmartDownload">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div>
+          <span>Pilihan Download File BTI</span>
+          <div style="font-size: 0.75rem; color: #d97706; font-weight: 700;">Mencegah Dobel Upload di Sistem Kantor</div>
+        </div>
+        <button class="modal-close" id="btnCloseSmartDl">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="background: #fffbeb; border: 1.5px solid #fde68a; border-radius: 10px; padding: 12px; margin-bottom: 14px; font-size: 0.88rem;">
+          <div style="font-weight: 800; color: #92400e; margin-bottom: 4px;">⚠️ Terdeteksi Dus Susulan / Barang Tambahan:</div>
+          <div style="color: #78350f; font-size: 0.85rem; line-height: 1.4;">
+            • <strong><span id="cntDownloaded">0</span> barang</strong> sudah pernah diunduh pada file sebelumnya.<br>
+            • <strong><span id="cntNew">0</span> barang baru (dus susulan)</strong> belum pernah diunduh.
+          </div>
+        </div>
+
+        <div class="choice-card-option recommended">
+          <div style="font-weight: 800; color: #15803d; font-size: 0.95rem;">
+            Pilihan 1: Download HANYA Dus Susulan (Disarankan)
+          </div>
+          <p style="font-size: 0.82rem; color: #166534; margin: 4px 0 10px 0; line-height: 1.35;">
+            Gunakan pilihan ini jika file pertama tadi <strong>SUDAH di-upload</strong> ke sistem kantor, agar transaksi lama <strong>TIDAK DOBEL</strong>!
+          </p>
+          <button type="button" class="btn-download-txt" id="btnDlOnlyNew" style="width: 100%; background: #16a34a;">
+            ⚡ DOWNLOAD DUS SUSULAN (<span id="btnNewCnt">0</span> Item)
+          </button>
+        </div>
+
+        <div class="choice-card-option secondary">
+          <div style="font-weight: 800; color: #334155; font-size: 0.95rem;">
+            Pilihan 2: Download Gabungan Semua Barang
+          </div>
+          <p style="font-size: 0.82rem; color: #64748b; margin: 4px 0 10px 0; line-height: 1.35;">
+            Gunakan pilihan ini jika file pertama tadi <strong>BELUM di-upload / dibatalkan</strong>, sehingga 1 file ini memuat seluruh dus lengkap dari awal.
+          </p>
+          <button type="button" class="btn-preview-txt" id="btnDlAllMerged" style="width: 100%;">
+            📦 DOWNLOAD GABUNGAN SEMUA (<span id="btnAllCnt">0</span> Item)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Post Download (Konfirmasi Selesai / Mulai Sesi Baru) -->
+  <div class="modal-overlay" id="modalPostDownload">
+    <div class="modal-box" style="max-width: 460px;">
+      <div class="modal-header">
+        <span>🎉 File BTI Berhasil Diunduh!</span>
+        <button class="modal-close" id="btnClosePostDl">✕</button>
+      </div>
+      <div class="modal-body" style="text-align: center;">
+        <div style="font-size: 2.8rem; margin: 6px 0;">📄</div>
+        <div style="font-weight: 800; font-size: 1rem; color: #1e40af;" id="postDlFilename">BTI_...TXT</div>
+        <p style="font-size: 0.85rem; color: #64748b; margin: 6px 0 16px 0; line-height: 1.4;">
+          File sudah tersimpan di HP & otomatis tercatat di <strong>Riwayat Arsip (📁)</strong>.
+        </p>
+
+        <div style="background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 12px; text-align: left; font-size: 0.85rem;">
+          <strong style="color: #0f172a; display: block; margin-bottom: 4px;">Pilihan Selanjutnya:</strong>
+          • <strong>Mulai Sesi Baru</strong>: Layar scan akan dikosongkan untuk surat jalan berikutnya (data tadi tetap aman tersimpan di menu Arsip 📁).<br>
+          • <strong>Tetap di Sini</strong>: Jika masih ada dus susulan yang ingin ditambah/diperiksa.
+        </div>
+      </div>
+      <div class="modal-footer" style="flex-direction: column; gap: 8px;">
+        <button type="button" class="btn-download-txt" id="btnArchiveAndClear" style="width: 100%; background: #16a34a;">
+          🧹 Mulai Sesi Baru (Kosongkan Layar)
+        </button>
+        <button type="button" class="btn-preview-txt" id="btnKeepSession" style="width: 100%;">
+          📦 Tetap Simpan di Sini
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Riwayat Arsip Dokumen BTI -->
+  <div class="modal-overlay" id="modalArchive">
+    <div class="modal-box" style="max-width: 650px;">
+      <div class="modal-header">
+        <div>
+          <span>📁 Riwayat & Arsip Dokumen BTI</span>
+          <div style="font-size: 0.75rem; color: var(--primary); font-weight: 700;">Data Aman & Bisa Diunduh Ulang Kapan Saja</div>
+        </div>
+        <button class="modal-close" id="btnCloseArchive">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" id="inputSearchArchive" class="form-control" placeholder="🔍 Cari file / toko / dus di arsip..." style="margin-bottom: 12px;">
+        
+        <div id="archiveListContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        
+        <div id="emptyArchiveState" style="text-align: center; padding: 30px 16px; color: var(--text-muted); display: none;">
+          <div style="font-size: 2.2rem; margin-bottom: 6px;">📂</div>
+          <div style="font-weight: 700;">Belum ada arsip dokumen BTI</div>
+          <div style="font-size: 0.82rem; margin-top: 2px;">Dokumen yang sudah di-download akan otomatis tercatat di sini.</div>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button type="button" class="btn-card-del" id="btnClearAllArchives" title="Bersihkan Seluruh Arsip Lama" style="width: auto; padding: 6px 12px; font-size: 0.8rem; font-weight: 700;">
+          🗑️ Bersihkan Arsip Lama
+        </button>
+        <button type="button" class="btn-preview-txt" id="btnCloseArchiveBottom">Tutup</button>
       </div>
     </div>
   </div>
