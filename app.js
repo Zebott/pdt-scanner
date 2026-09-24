@@ -82,7 +82,7 @@
 
   // --- State & Storage ---
   const STORAGE_KEY = 'ITX_PDT_BTI_SESSION_V2';
-  let database = { items: {}, lokasi: [] };
+  let database = { items: {}, lokasi: [], barcodes: {} };
 
   let state = {
     tanggal: '',
@@ -158,12 +158,14 @@
   function initDatabase() {
     if (window.PDT_DATABASE && window.PDT_DATABASE.items) {
       database = window.PDT_DATABASE;
+      if (!database.barcodes) database.barcodes = {};
       populateLocationDropdowns();
     } else {
       fetch('pdt_data.json')
         .then(res => res.json())
         .then(data => {
           database = data;
+          if (!database.barcodes) database.barcodes = {};
           populateLocationDropdowns();
         })
         .catch(err => {
@@ -319,6 +321,7 @@
               <div class="item-sub">
                 <span class="badge-pack-tag">📦 ${escapeHtml(item.pack)}</span>
                 <span>PLU: <strong>${escapeHtml(item.plu)}</strong></span>
+                ${item.barcode && item.barcode !== item.plu ? `<span>🏷️ ${escapeHtml(item.barcode)}</span>` : ''}
                 <span>⏱️ ${escapeHtml(item.time)}</span>
                 ${item.downloaded ? '<span class="badge-dl-status downloaded">✅ Diunduh</span>' : '<span class="badge-dl-status new">✨ Baru</span>'}
               </div>
@@ -362,41 +365,68 @@
       elLiveCard.className = 'live-item-card found';
       elLiveIcon.textContent = '✅';
       elLiveName.textContent = found.name;
-      elLiveMeta.textContent = `PLU: ${found.plu} (Terdaftar di master.dbf)`;
+      if (found.fromBarcode && found.barcode) {
+        elLiveMeta.textContent = `Barcode: ${found.barcode} ➔ PLU: ${found.plu} (Terdaftar di barcode.dbf)`;
+      } else {
+        elLiveMeta.textContent = `PLU: ${found.plu} (Terdaftar di master.dbf)`;
+      }
       return found;
     } else if (rawVal.length >= 3) {
       elLiveCard.className = 'live-item-card not-found';
       elLiveIcon.textContent = '⚠️';
-      elLiveName.textContent = `[PLU: ${rawVal}] Belum terdaftar di master.dbf`;
+      elLiveName.textContent = `[Kode: ${rawVal}] Belum terdaftar di master.dbf / barcode.dbf`;
       elLiveMeta.textContent = 'Akan dicatat sebagai item manual jika ditambahkan';
       return null;
     } else {
       elLiveCard.className = 'live-item-card';
       elLiveIcon.textContent = '🔍';
       elLiveName.textContent = `Mencari kode '${rawVal}'...`;
-      elLiveMeta.textContent = 'Lanjutkan mengetik nomor PLU atau nama barang';
+      elLiveMeta.textContent = 'Lanjutkan mengetik nomor PLU, barcode, atau nama barang';
       return null;
     }
   }
 
-  // --- Lookup Item ---
+  // --- Lookup Item (Barcode -> PLU -> Nama Barang or direct PLU) ---
   function lookupItem(code) {
     if (!code) return null;
     const cleanCode = code.trim().toUpperCase();
-    
-    if (database.items[cleanCode]) {
-      return { plu: cleanCode, name: database.items[cleanCode] };
+    const noSpace = cleanCode.replace(/\s+/g, '');
+
+    // 1. Check if scanned code is in database.barcodes
+    if (database.barcodes) {
+      const mappedPlu = database.barcodes[noSpace] || database.barcodes[cleanCode];
+      if (mappedPlu) {
+        // Resolve product name from database.items using mappedPlu
+        const name = database.items[mappedPlu] 
+                  || database.items[mappedPlu.padStart(7, '0')]
+                  || `[PLU: ${mappedPlu}]`;
+        return {
+          plu: mappedPlu,
+          name: name,
+          barcode: cleanCode,
+          fromBarcode: true
+        };
+      }
     }
 
-    if (/^\d+$/.test(cleanCode)) {
-      const padded = cleanCode.padStart(7, '0');
+    // 2. Check if code is directly a PLU in database.items
+    if (database.items[cleanCode]) {
+      return { plu: cleanCode, name: database.items[cleanCode], fromBarcode: false };
+    }
+    if (database.items[noSpace]) {
+      return { plu: noSpace, name: database.items[noSpace], fromBarcode: false };
+    }
+
+    // 3. Check padded/unpadded PLU digits
+    if (/^\d+$/.test(noSpace)) {
+      const padded = noSpace.padStart(7, '0');
       if (database.items[padded]) {
-        return { plu: padded, name: database.items[padded] };
+        return { plu: padded, name: database.items[padded], fromBarcode: false };
       }
-      const unpadded = cleanCode.replace(/^0+/, '');
+      const unpadded = noSpace.replace(/^0+/, '');
       for (let k in database.items) {
         if (k.replace(/^0+/, '') === unpadded) {
-          return { plu: k, name: database.items[k] };
+          return { plu: k, name: database.items[k], fromBarcode: false };
         }
       }
     }
@@ -405,7 +435,7 @@
   }
 
   // --- Add Item to Session ---
-  function addItemToSession(plu, name, qty) {
+  function addItemToSession(plu, name, qty, barcode = '') {
     const nextSeq = state.items.length + 1;
     const nowTime = formatScanTimestamp(new Date());
     const pack = state.noPack.trim().toUpperCase() || 'AA/001';
@@ -417,7 +447,8 @@
       plu: plu,
       name: name,
       qty: finalQty,
-      time: nowTime
+      time: nowTime,
+      barcode: barcode || ''
     });
 
     saveSession();
@@ -430,7 +461,8 @@
       elLiveCard.className = 'live-item-card found';
       elLiveIcon.textContent = '✅';
       elLiveName.textContent = `Berhasil Ditambahkan (+${finalQty}): ${name}`;
-      elLiveMeta.textContent = `PLU: ${plu} | Total Qty: ${finalQty} pcs | Pack: ${pack}`;
+      const barcodeTag = barcode && barcode !== plu ? ` | Barcode: ${barcode}` : '';
+      elLiveMeta.textContent = `PLU: ${plu}${barcodeTag} | Total Qty: ${finalQty} pcs | Pack: ${pack}`;
     }
 
     // Reset input barcode
@@ -445,10 +477,11 @@
     hidePreview();
   }
 
-  function showPreview(plu, name, qty) {
-    state.activePendingItem = { plu, name };
+  function showPreview(plu, name, qty, barcode = '') {
+    state.activePendingItem = { plu, name, barcode };
     elPreviewName.textContent = name;
-    elPreviewMeta.textContent = `PLU: ${plu} | Pack: ${state.noPack}`;
+    const barcodeTag = barcode && barcode !== plu ? ` | Barcode: ${barcode}` : '';
+    elPreviewMeta.textContent = `PLU: ${plu}${barcodeTag} | Pack: ${state.noPack}`;
     elPreviewQty.value = parseFloat(qty) || 1;
     elPreview.classList.add('active');
     elBtnAdd.focus();
@@ -475,15 +508,15 @@
     const found = lookupItem(rawVal);
     if (found) {
       if (state.autoAdd) {
-        addItemToSession(found.plu, found.name, currentQty);
+        addItemToSession(found.plu, found.name, currentQty, found.barcode || '');
       } else {
-        showPreview(found.plu, found.name, currentQty);
+        showPreview(found.plu, found.name, currentQty, found.barcode || '');
         playBeepSuccess();
       }
     } else {
       playBeepError();
-      showToast(`PLU / Kode '${rawVal}' tidak ditemukan di master.dbf!`, true);
-      showPreview(rawVal, `[ITEM TIDAK DIKENAL ${rawVal}]`, currentQty);
+      showToast(`Barcode / PLU '${rawVal}' tidak ditemukan di database!`, true);
+      showPreview(rawVal, `[ITEM TIDAK DIKENAL ${rawVal}]`, currentQty, rawVal);
     }
   }
 
@@ -497,10 +530,23 @@
     }
 
     const matches = [];
+
+    // Check direct barcode match
+    if (database.barcodes) {
+      const cleanQ = q.replace(/\s+/g, '');
+      const bPlu = database.barcodes[cleanQ] || database.barcodes[q];
+      if (bPlu) {
+        const bName = database.items[bPlu] || database.items[bPlu.padStart(7, '0')] || `PLU ${bPlu}`;
+        matches.push({ plu: bPlu, name: bName, barcode: q, isBarcode: true });
+      }
+    }
+
     for (let plu in database.items) {
       const name = database.items[plu];
       if (plu.includes(q) || name.toUpperCase().includes(q)) {
-        matches.push({ plu, name });
+        if (!matches.some(m => m.plu === plu)) {
+          matches.push({ plu, name });
+        }
         if (matches.length >= 10) break;
       }
     }
@@ -508,9 +554,10 @@
     if (matches.length > 0) {
       let html = '';
       matches.forEach(m => {
+        const barcodePrefix = m.isBarcode ? `🏷️ Barcode ${m.barcode} ➔ ` : '';
         html += `
-          <div class="suggest-item" data-plu="${m.plu}" data-name="${escapeHtml(m.name)}">
-            <span class="suggest-plu">${m.plu}</span> - <span class="suggest-name">${escapeHtml(m.name)}</span>
+          <div class="suggest-item" data-plu="${m.plu}" data-name="${escapeHtml(m.name)}" data-barcode="${m.barcode || ''}">
+            <span class="suggest-plu">${barcodePrefix}${m.plu}</span> - <span class="suggest-name">${escapeHtml(m.name)}</span>
           </div>
         `;
       });
@@ -526,15 +573,16 @@
     if (!item) return;
     const plu = item.getAttribute('data-plu');
     const name = item.getAttribute('data-name');
+    const barcode = item.getAttribute('data-barcode') || '';
     elSuggestBox.style.display = 'none';
     
     const currentQty = parseFloat(elMainQty.value) || 1.0;
     elScanInput.value = plu;
     updateLiveItemPreview(plu);
     if (state.autoAdd) {
-      addItemToSession(plu, name, currentQty);
+      addItemToSession(plu, name, currentQty, barcode);
     } else {
-      showPreview(plu, name, currentQty);
+      showPreview(plu, name, currentQty, barcode);
     }
   });
 
@@ -585,7 +633,7 @@
   elBtnAdd.addEventListener('click', function () {
     if (!state.activePendingItem) return;
     const qty = parseFloat(elPreviewQty.value) || 1.0;
-    addItemToSession(state.activePendingItem.plu, state.activePendingItem.name, qty);
+    addItemToSession(state.activePendingItem.plu, state.activePendingItem.name, qty, state.activePendingItem.barcode || '');
   });
 
   elBtnStepMinus.addEventListener('click', function () {
