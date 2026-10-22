@@ -522,7 +522,14 @@
 
   // --- Autocomplete search as user types & Live Item Preview ---
   elScanInput.addEventListener('input', function () {
-    const q = elScanInput.value.trim().toUpperCase();
+    const rawVal = elScanInput.value;
+    // Auto-detect newline from hardware barcode scanner (Honeywell EDA50 CR/LF suffix)
+    if (rawVal.includes('\n') || rawVal.includes('\r')) {
+      elScanInput.value = rawVal.replace(/[\r\n]+/g, '').trim();
+      handleScanInput();
+      return;
+    }
+    const q = rawVal.trim().toUpperCase();
     updateLiveItemPreview(q);
     if (q.length < 2) {
       elSuggestBox.style.display = 'none';
@@ -586,11 +593,20 @@
     }
   });
 
-  // Enter key on scan input
+  // Enter key on scan input (Support Honeywell EDA50 Android key codes: 13, 66, and 'Done')
   elScanInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' || e.keyCode === 13 || e.which === 13 || e.keyCode === 66 || e.key === 'Done') {
       e.preventDefault();
       handleScanInput();
+    }
+  });
+
+  // Global scanner redirect: if laser is pressed while focus was lost on white space, refocus scan input
+  document.addEventListener('keydown', function (e) {
+    const activeEl = document.activeElement;
+    const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+    if (!isInput && e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      elScanInput.focus();
     }
   });
 
